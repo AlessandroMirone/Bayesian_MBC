@@ -1,0 +1,403 @@
+---
+title: "Bayesian Model-Based Clustering for Community Detection"
+author: "Alessandro Mirone - 966880"
+date: "28/4/2022"
+output: ioslides_presentation
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r library, message=FALSE, warning=FALSE, include=FALSE}
+setwd("E:/DSE flash/Bayesian Analysis/Project/presentation")
+library(tidyverse)
+library(rtweet)
+library(plyr)
+library(Gifi)
+library(rgl)
+library(plotly)
+library(knitr)
+library(mclust)
+library(compositions)
+```
+
+## Introduction (I)
+
+### *Social analysis framework:*
+
+The aim of this work is to examine digital interactions of individuals in the form of tweets and use the information retained through such analysis in order to verify whether it's possible to make conclusions about one's socio-political stance.
+
+### *Scope of the project:*
+
+The question is thus addressed as a search for relevant indicators of socio-political stance, a categorization based on such indicators and finally a prediction of one's most probable beliefs about social and political phenomena given its membership to a certain social group.
+
+## Introduction (II)
+
+### *Organization:*
+
+For doing so, the project is divided into three parts:
+
+-   Data retrieval and data set construction.
+
+-   Variables scaling.
+
+-   Clustering of observations.
+
+## Methodology
+
+-   Qualitative analysis for finding suitable indicators of social beliefs in the form of digital practices (Tweets).
+-   Coding of such indicators onto ordinal variables.
+-   Transformation of ordinal variables into numerical variables through Non-linear Principal Component Analysis with Optimal Scaling.
+-   Use of Model-Based Clustering (Gaussian finite mixture model) with Bayesian regularization to aggregate newly formed coordinates and find groups of individuals characterized by similar beliefs, infer groups' Habits and analyze the structure of each identified community.
+
+## Qualitative Analysis of Digital Practices (I)
+
+Observing individuals actions in a digital space we can make conclusions about their beliefs and behaviour. In particular, we can look at interactions on social media ("Posting"). This analysis focus on Twitter; we can use Hashtags, feature of this media, to collect individuals' stances about relevant topics.
+
+## Qualitative Analysis of Digital Practices (II)
+
+To collect individual beliefs, first it's necessary to define some dimensions, which will be later coded into variables. The dimensions chosen for this project are six:
+
+-   Racial
+
+-   Activism
+
+-   Partisan
+
+-   Political
+
+-   Civil
+
+-   Party
+
+## Qualitative Analysis of Digital Practices (III)
+
+For Each Axis, two contrasting Hashtags were selected based on a search for influential tweets among US' Conservatives and Liberals. The Hashtags, for each corresponding dimension, are:
+
+-   "BlackLivesMatter" Vs "AllLivesMatter"
+-   "RepublicansAreTheProblem" Vs "DemocratsAreADisaster"
+-   "VaccinesWork" Vs "Vaxxed"
+-   "WeWantVotingRights" Vs "VoteThemAllOut2022"
+-   "ProChoice" Vs "ProLife"
+-   "VoteBlue" Vs "VoteRed"
+
+## Data set Construction (I)
+
+Using R statistical software and Package RTweet, Tweets from 15927 users were downloaded from Twitter: Tweets were filtered as to contain either one or another hashtag for each of the six axis, excluding ambiguous matches. The results were combined into a single dataframe, allowing to group observations for each axis by user_id. Variables were initially coded as ordinals:
+
+-   valued 1 for tweets expressing progressive hashtags.
+-   valued -1 for tweets expressing conservatives hashtags.
+-   valued 0 if the user tweeting did not expressed a preference on the corresponding issue.
+
+## Original Data Set
+
+```{r Table 1, echo=FALSE, message=FALSE, warning=FALSE}
+data <- read.csv("twitter.data.csv") #original data
+data<-data[,-1]
+colnames(data) <- c("User","Racial","Activism","Partisan","Political","Civil","Party")
+kable(head(data, 5), caption = "Table 1: first five rows of the initial data set")
+```
+
+## Data set Construction (II)
+
+The resulting Data set was loaded and rescaled through Non-Linear PCA with Gifi Package and princals() in order to transform the ordinal variables into numerical ones, that can be used for clustering.
+
+```{r table 2: new data coordinates, echo=FALSE, message=FALSE, warning=FALSE}
+data <- read.csv("twitter.data.csv")
+data<-data[,-c(1,2)]
+colnames(data) <- c("Racial","Activism","Partisan","Political","Civil","Party")
+fit.data <- princals(data, ndim = 6)
+new.tw <- as.data.frame(fit.data$objectscores) # new coordinates on the principal components
+colnames(new.tw) <- c("Racial","Activism","Partisan","Political","Civil","Party")
+kable(head(new.tw, 5), caption = "Table 2: first five rows of the reconstructed data set")
+```
+
+## Summary of princals()
+
+```{r summary, echo=FALSE, message=FALSE, warning=FALSE}
+summary(fit.data)
+```
+
+## Loadings
+
+```{r Components correlation, echo=FALSE, message=FALSE, warning=FALSE}
+kable(fit.data$loadings, caption = "Table 3: loadings") #loadings
+```
+
+## Plot of First Three Components
+
+```{r 1_3 axis, echo=FALSE, message=FALSE, warning=FALSE}
+fig1 <- plot_ly(new.tw, x = ~Racial, y = ~Activism, z = ~Partisan)
+fig1 <- fig1 %>% add_markers()
+fig1 <- fig1 %>% layout(scene = list(xaxis = list(title = 'Racial'),
+                                   yaxis = list(title = 'Activism'),
+                                   zaxis = list(title = 'Partisan')))
+fig1
+```
+
+## Plot of Second Three Components
+
+```{r 4_6 axis, echo=FALSE, message=FALSE, warning=FALSE}
+fig2 <- plot_ly(new.tw, x = ~Political, y = ~Civil, z = ~Party)
+fig2 <- fig2 %>% add_markers()
+fig2 <- fig2 %>% layout(scene = list(xaxis = list(title = 'Political'),
+                                    yaxis = list(title = 'Civil'),
+                                    zaxis = list(title = 'Party')))
+fig2
+```
+
+## Some Considerations about the Results
+
+The initial plots of the reconstructed observations suggest the presence of at least three macro groups. Given that the axis are constructed to be almost orthogonal, we retain all dimensions during the variable transformation. Loadings are useful to map the reconstructed coordinates into the new space, giving the sense of direction; for example, a point which identify an individual of liberal beliefs about minority rights will be in the top left corner of the plot, near the origin of the z axis and of the y axis, corresponding to positive values of the first three components.
+
+## Gaussian Mixture Model
+
+In model-based clustering, the data $y = (y_1, ... ,y_n)$ are assumed to be generated by a mixture model with density 
+$$
+\begin{equation}
+f(y) =\prod_{i=1}^{n}\sum_{k=1}^{G} τ_kf_k(y_i|θ_k)
+\end{equation}
+$$
+where $f_k(y_i|θ_k)$ is a probability distribution with parameters $\theta_k$, and $\tau_k$ is the probability of belonging to the $k$-th component. In the multivariate Gaussian mixture model, $f_k$ are taken to be multivariate normal distributions, parameterized by their means $\mu_k$ and covariances $\Sigma_k$: 
+$$
+\begin{equation}
+f_k(y_i|\theta_k) = \phi(y_i|\mu_k,\Sigma_k) \equiv |2\pi\Sigma_k|^{-\frac{1}{2}} exp \{\frac{1}{2}(y_i - \mu_k)^T \Sigma_k^{-1} (y_i - \mu_k)\}
+\end{equation}
+$$ 
+where $\theta_k = (\mu_k , \Sigma_k)$.
+
+## EM algorithm for Multivariate Gaussian Mixtures (I)
+
+The parameters of the model for each component are usually estimated through the Expectation-Maximization Algorithm (EM), based on MLE solution, to find the estimates $\hat{\theta_k}$. This is a general approach to maximum likelihood for problems in which the data can be viewed as consisting of *n* multivariate observations $(y_i, z_i)$, in which $y_i$ is observed and $z_i$ is unobserved. If the $(y_i, z_i)$ are independent and identically distributed (iid) according to a probability distribution $f$ with parameters $\theta$, then the *complete-data likelihood* is 
+$$
+\begin{equation}
+\mathcal{L_C}(y,z| \theta) = \prod_{i=1}^{n}f(y_i , z_i | \theta) \ 
+\end{equation}
+$$ where $y = (y_1, ... ,y_n)$ and $z = (z_1, ... ,z_n)$.
+
+## EM algorithm for Multivariate Gaussian Mixtures (II)
+
+The *observed data likelihood* $\mathcal{L_O}(y|\theta)$, also called *mixture likelihood*, can be obtained by integrating the unobserved data $z$ out of the complete-data likelihood: $$
+\begin{equation}
+\begin{split}
+\mathcal{L_O}(y,z| \theta) & = \int \mathcal{L_C}(y,z|\theta) dz \\ 
+& = \prod_{i=1}^{n}\sum_{k=1}^{G} τ_k\phi_k(y_i|\mu_k,\Sigma_k)
+\end{split}
+\end{equation}
+$$
+
+## EM algorithm for Multivariate Gaussian Mixtures (III)
+
+The vector $z = (z_1, ... ,z_n)$, where $z_i \in \{1,... ,G\}$, represents the cluster membership for observation $i$. It is possible to use Bayes theorem to estimate the conditional probabilities that $Z_i = k | y_i$ $$
+\begin{equation}
+P(Z_i = k | Y_i) = \frac{\tau_k N(y|\mu_k, \Sigma_k)}{\sum_{j=1}^{G} \tau_j N(y|\mu_j, \Sigma_j)}
+\end{equation}
+$$ The MLE solution for the maximization of the complete-data log-likelihood would yield the best parameters estimate $\hat{\theta_k}$ for the model. However this implies estimating $Z_i$, which is a function of $\theta_k$, while $\theta_k$ depends on the values of $Z_i$.
+
+## EM algorithm for Multivariate Gaussian Mixtures (IV)
+
+The EM algorithm solves this problem by recursively estimating both the conditional probabilities $P(Z_i = k | Y_i)$ and the parameters $\theta_k$ in two steps: the first is the Expectation step (E-step) in which, given an initial set of parameters ${\theta{_k}^{(0)}}$, the value $\hat{z}_{i,k}$ of $z_{i,k}$ maximizing the complete-data likelihood is the estimated conditional probability that observation $i$ belongs to group $k$: $$
+\begin{equation}
+\hat{z}_{i,k}^{(s)} = \frac{\hat{\tau}_k^{(s-1)} f_k(y_i|\hat{\theta}_k^{(s-1)})}{\sum_{j=1}^{G} \hat{\tau}_j^{(s-1)} f_j(y_i|\hat{\theta}_j^{(s-1)})}
+\end{equation}
+$$ where subscript $(s)$ stands for the $s$-th iteration of the algorithm for mixture models and subscript $(s − 1)$ for the previous one.
+
+## EM algorithm for Multivariate Gaussian Mixtures (V)
+
+The second is the Maximization step (M-step), that involves maximizing the complete-data likelihood in terms of $\tau_k$ and $\theta_k$ with $z_{i,k}$ fixed at the values computed in the E-step, namely $\hat{z}_{i,k}$. At the start of each iteration $(s)$, the observed log-likelihood is evaluated by replacing $\mu_k$, $\Sigma_k$ and $\tau_k$ with $\hat{\mu}_k^{(s-1)}$, $\hat{\Sigma}_k^{(s-1)}$ and $\hat{\tau}_k^{(s-1)}$. At the end of the iteration $(s)$, the values for $\hat{\theta}_k$ in the observed log-likelihood are evaluated again replacing the estimates at $(s-1)$ with those of the current iteration. The algorithm stops if $\ell^{(s)}(\theta|Y_1,...,Y_n) - \ell^{(s-1)}(\theta|Y_1,...,Y_n) < \epsilon$, or if the maximum number of iterations is achieved.
+
+## Drawbacks of the EM algorithm
+
+The EM algorithm is widely used in model based clustering with good results, but can fail to converge, instead diverging to a point of infinite likelihood. This is because, as $\mu_k → y_i$ and $|\Sigma_k| → 0$ for any observation $i$ and mixture component $k$, i.e. as the component mean approaches the observation and the component covariance becomes singular, then the likelihood for that observation becomes infinite and hence so does the whole mixture likelihood
+
+## Bayesian Regularization (I)
+
+The procedure involves placing a prior distribution on the parameters that eliminates failure due to singularity, while having little effect on stable results obtainable without a prior. The Bayesian predictive density for the data is assumed to be of the form
+$$
+\begin{equation}
+\mathcal{L}(Y|\tau_k,\mu_k,\Sigma_k) \mathcal{P}(\tau_k,\mu_k,\Sigma_k|\xi)
+\end{equation}
+$$ 
+where $\mathcal{L}$ is the mixture likelihood and $\mathcal{P}$ is a prior distribution on the parameters $\tau_k$, $\mu_k$ and $\Sigma_k$, which includes other parameters denoted by $\xi$. The objective is to find the MAP estimate for the mixture parameters.
+
+## Bayesian Regularization (II)
+
+Regarding the choice of priors for $\theta_k$ , it is assumed that:
+
+-   the mixture probabilities $\tau_k$ are uniformly distributed on the G-simplex.
+
+-   each vector mean $\mu_k$ is normally distributed (conditional on the covariance matrix)
+
+$$
+\begin{equation}
+\mathcal{P}(\mu_k|\Sigma_k) \sim \mathcal{N}(\mu_p,\Sigma_p/\kappa_p) \propto |\Sigma|^{-\frac{1}{2}}\exp\{-\frac{\kappa_p}{2} trace [(\mu_k - \mu_p)^T \Sigma^{-1} (\mu_k - \mu_p)] \}
+\end{equation}
+$$
+
+## Bayesian Regularization (III)
+
+-   the prior distribution for each covariance matrix $\Sigma_k$ is an Inverse-Wishart
+
+$$
+\begin{equation}
+\mathcal{P}(\Sigma_k) \sim inverseWishart(\nu_p,\Lambda_p) \propto |\Sigma_k|^{-\frac{\nu_p + d + 1}{2}}\exp\{-\frac{1}{2} trace [\Sigma_k^{-1}  \Lambda_p)\}
+\end{equation}
+$$ 
+where $d$ is the number of dimensions and the subscript $p$ indicates a prior hyperparameter. These are the *mean*, *shrinkage* and *degrees of freedom*, respectively $\mu_p$ , $\kappa_p$ and $\nu_p$ while the hyperparameter $\Lambda_p$ is the *scale* matrix of the inverse-Wishart prior.
+
+## Bayesian Regularization (IV)
+
+The joint prior is a normal-inverse-Wishart
+
+$$
+\begin{equation}
+\begin{split}
+\mathcal{P}(\theta|\xi) & \sim Normal-inverseWishart(\mu_p,\kappa_p,\nu_p,\Lambda_p) \\
+&\propto |\Sigma|^{-\frac{\nu_p + d + 2}{2}}\exp\{-\frac{1}{2} trace (\Lambda_p^{-1}\Sigma^{-1})\} \exp \{-\frac{\kappa_p}{2}(\mu -\mu_p)^T\Sigma^{-1}(\mu-\mu_p)\} \\
+&=|\Sigma|^{-\frac{\nu_p + d + 2}{2}}\exp\{-\frac{1}{2} trace (\Lambda_p^{-1}\Sigma^{-1})\} \exp \{-\frac{\kappa_p}{2} trace[\Sigma^{-1}(\mu -\mu_p)(\mu -\mu_p)^T]\}
+\end{split}
+\end{equation}
+$$
+as the independent prior over the mixture proportions is constant and therefore $\tau$ disappears in the approximation. This is a conjugate prior for a multivariate normal distribution, because the posterior can be also expressed as a product between a normal distribution and an inverse-Wishart.
+
+## Model characterization
+
+The covariance matrices were assumed to be ellipsoidal while their volumes, shapes and orientations were allowed to vary across all components. The hyperparameters $\xi$ are assumed to be equal across all components, and they are
+
+-   $\mu_p$ : the mean vector of the data
+
+-   $\kappa_p$ : .01
+
+-   $\nu_p$ : $d + 2 = 8$
+
+-   $\Lambda_p$ : $\frac{var(data)}{G^{2/d}}$
+
+## Posterior M-step Estimators 
+
+Then, the posterior estimators for the mean and variance that maximize the expected complete-data log-likelihood (5) in the M-step of the EM algorithm become:
+
+$$
+\begin{equation}
+\begin{split}
+&\hat{\mu}_k = \frac{n_k\bar{y}_k + \kappa_p \mu_p}{n_k + \kappa_p}\\\\
+&\hat{\Sigma}_k = \frac{\Lambda_p + \frac{\kappa_pn_k}{(n_k + \kappa_p)}(\bar{y}_k-\mu_p)(\bar{y}_k-\mu_p)^T + W_k}{\nu_p+n_k+d+2}
+\end{split}
+\end{equation}
+$$
+where $z_{i,k}$ is the conditional probability that observation $i$ belongs to the $k$-th component,\
+$n_k \equiv \sum_{i=1}^n z_{i,k}$, $\bar{y}_k \equiv \sum_{i=1}^n\frac{z_{i,k}y_i}{n_k}$ and $W_k \equiv \sum_{i=1}^nz_{i,k}(y_i-\bar{y}_k)(y_i - \bar{y}_k)^T$.
+
+## Model Evaluation (I)
+
+50 possible models corresponding to $G = 1,...,50$ were evaluated based on their Bayesian Information Criterion (BIC) given by
+
+$$
+\begin{equation}
+BIC_{\mathcal{M}} = 2 loglik_{\mathcal{M}}(y,\theta^*) - df_{\mathcal{M}} log(n)
+\end{equation}
+$$
+where $loglik_{\mathcal{M}}(y,\theta^*)$ is the log-likelihood evaluated at the MAP for the model $\mathcal{M}$ and the data, $n$ is the number of observations in the data and $df_{\mathcal{M}}$ is the degrees of freedom for the model $\mathcal{M}$, corresponding to $df_{\mathcal{M}} = G_{\mathcal{M}} (\frac{(d\times d - d)}{2} + 2d + 1)$.
+
+## Model Evaluation (II)
+
+```{r BIC values for VVV, message=FALSE, warning=FALSE, include=FALSE}
+set.seed(0)
+BICmap <- mclustBIC(new.tw, G = 1:50, prior = priorControl(functionName = "defaultPrior"),modelNames = "VVV")
+BICsp<- mclustBIC(new.tw, G = 1:50, modelNames = "VVV",control=emControl(eps=0, tol=c(0.9 ,0.9)))
+BICnm <- mclustBIC(new.tw, G = 1:50, modelNames = "VVV")
+```
+
+In a normal model based setting, any component with fewer than d points will tend to have a singular covariance matrix, and hence produce an infinite likelihood, even if there is a true cluster with fewer than d points. Thus the singularities might lead to incorrect model specification, as the algorithm doesn't consider these solutions. The Bayesian regularization discussed above resolves this problem by allowing the likelihood to increase smoothly rather than jumping to infinity because, when a proper prior is defined, there are generally no paths along the parameter space in which the posterior density tends to infinity.
+
+## Model Evaluation (III)
+
+```{r fig 3, echo=FALSE, fig.align='center', fig.show='hold', message=FALSE, warning=FALSE, out.height="70%", out.width="70%"}
+df<-data.frame(BIC.reg = as.vector(BICmap), BIC.sp = as.vector(BICsp),BIC.cl = as.vector(BICnm),G = c(1:50) )
+ggplot(df, aes(x = G)) +
+  geom_line(aes(y = BIC.sp),linetype= "dashed", color = "red") +
+  geom_line(aes(y=BIC.reg),color = "black")+
+  geom_line(aes(y = BIC.cl), color = "red")+
+  geom_point(aes(y = BIC.sp),shape=1, color = "red") +
+  geom_point(aes(y=BIC.reg),color = "black")+
+  geom_point(aes(y = BIC.cl), color = "red") +
+  ylab("BIC")+
+  scale_x_continuous(breaks=seq(1,50,2))+
+  theme_test()
+```
+Following these results it was decided to choose $G = 9$, as the log-likelihood doesn't improve much after that value for G and the model was kept parsimonious.
+
+## Results (First Three Components)
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+result <- Mclust(new.tw, G = 9, prior = priorControl(), modelNames = "VVV")
+result.df<-data.frame(result$data, result$classification)
+colnames(result.df)<-c("Racial","Activism","Partisan","Political","Civil","Party","Group")
+```
+```{r plot, echo=FALSE, message=FALSE, warning=FALSE}
+fig4 <- plot_ly(result.df, x = ~Racial, y = ~Activism, z = ~Partisan, color = ~ as.character(result.df$Group), colors = "Set1")
+fig4 <- fig4 %>% add_markers()
+fig4
+```
+
+## Results (Second Three Components)
+
+```{r fig5, echo=FALSE, message=FALSE, warning=FALSE}
+fig5 <- plot_ly(result.df, x = ~Political, y = ~Civil, z = ~Party, color = ~ as.character(result.df$Group), colors = "Set1")
+fig5 <- fig5 %>% add_markers()
+fig5
+```
+
+## Discussion (I)
+
+From these plots it is evident that most of the variability in the data is due to the large variance of the $8$th group, while all other components have much more concentrated densities. Note that there are many repetitions in the data, so despite what the visual inspection may suggest, group $8$ is not the largest, as confirmed by the evaluated $\tau_k$ :
+
+```{r table 4, echo=FALSE, message=FALSE, warning=FALSE}
+temp <- as.vector(result[["parameters"]][["pro"]])
+temp<-format(round(temp, 3), nsmall = 3)
+df2 <-data.frame(temp,c("tau.1","tau.2","tau.3","tau.4","tau.5","tau.6","tau.7","tau.8","tau.9"))
+colnames(df2)<-c("var1","var2")
+df2<-df2 %>% pivot_wider(names_from = var2, values_from = var1)
+kable(df2, caption = "Table 4: mixture proportions")
+```
+
+
+## Discussion (II)
+
+-   The first component represents individual which have showed a liberal alignment regarding political based contrasts, but took no further action on other issues. This group can be interpreted as holding an anti-conservative ethos, but not necessarily pro leftist, as some of them holds typical conservative positions regarding party-backed social issues (the idea that all politicians are corrupt or inefficient)
+
+-   The second component contain individuals that have expressed liberal sentiments regarding issues of racial equality. Is the second most numerous community and it's very cohesive.
+
+-   Group 3 represents people who advocate for the use of vaccines. It's the most numerous, and their member are likely of centrist or democratic political extraction.
+
+## Discussion (III)
+
+-   The fourth group is instead composed of individuals that like the idea of getting rid of the state ingerence, a retoric typically sustained by conservative parties. A few of them also support the republican-backed hashtag campaign "DemocratsAreADisaster", supporting the idea that this group identifies a populist or right-wing ethos.
+
+-   Component 5 has an opposite interpretation with respect to the previous one: this group identifies liberal democrats, people that showed support for democratic-backed social battles for voting rights, although didn't express other forms of liberal practices.
+
+-   The sixth identified community, representing true conservatives, is much smaller than the others: its members hold conservatives views regarding civil rights and are likely driven by a traditionalist ethos.
+
+## Discussion (IV)
+
+-   The seventh group is composed of individuals that express their preference for the democratic party through their digital practices. However, many of them also show discontent toward politicians and question the effectiveness of vaccines; this leads to think that this group identifies the democratic party's popular base.
+
+-   As showed by the clustering, component 8 is the most heterogeneous. It includes many subgroups,as well as a couple major ones, namely people that holds a progressive stance regarding civil rights and moderate conservatives. As for the subgroups, it's possible to identify left-wing supporters, engaged democrats, right wing extremists and fundamentalist conservatives. This community is most probably a container for the minoritarian components of the social space.
+
+## Discussion (V)
+
+-   Finally group 9, opposed to the third, contain individuals that are skeptical of the vaccines and identifies non-political conservatives.
+
+## Conclusions
+
+The method implemented constitutes a clustering procedure that can be applied to ordinal data, after NLPCA. It is robust to singularities in the covariance matrices of the components, thanks to the Bayesian regularization: this guarantees that components formed by identical observations -quite common in a context of ordinal data- that will have an estimate of their mean equal to the observations' value, won't be overlooked by the clustering algorithm thus making possible to specify the correct model.
+
+## Further comments
+
+two main issues: 
+
+-   the sparsity of the original matrix 
+
+-   the lack of a measure of meaningful relative distance between observations.
+
+Solutions to both of these difficulties can be addressed in multiple ways: more dense initial matrix, more dimensions, different encodings (RNN), assume a multinomial distribution for the data and choose a suitable prior. 
